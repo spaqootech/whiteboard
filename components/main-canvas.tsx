@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Grid3X3, Trash2 } from "lucide-react"
@@ -12,14 +11,6 @@ interface MainCanvasProps {
   className?: string
 }
 
-interface Cursor {
-  id: string
-  x: number
-  y: number
-  name: string
-  color: string
-}
-
 export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -27,24 +18,9 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentPath, setCurrentPath] = useState<{ x: number; y: number }[]>([])
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null)
-  const [cursors, setCursors] = useState<Cursor[]>([
-    { id: "1", x: 300, y: 200, name: "Alex", color: "#3B82F6" },
-    { id: "2", x: 600, y: 350, name: "Sarah", color: "#EF4444" },
-  ])
 
-  const {
-    state,
-    addElement,
-    deleteElements,
-    selectElements,
-    clearSelection,
-    setZoom,
-    setPan,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-  } = useDrawing()
+  const { state, addElement, deleteElements, selectElements, clearSelection, setZoom, setPan, undo, redo } =
+    useDrawing()
 
   // Initialize canvas
   useEffect(() => {
@@ -88,7 +64,7 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
 
     // Draw grid if enabled
     if (showGrid) {
-      drawGrid(ctx, canvas.width, canvas.height)
+      drawGrid(ctx, canvas.width / state.zoom, canvas.height / state.zoom)
     }
 
     // Draw all elements
@@ -267,6 +243,8 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   }
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (selectedTool === "select") return
+
     const pos = getMousePos(e)
     setIsDrawing(true)
     setStartPoint(pos)
@@ -277,7 +255,7 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const pos = getMousePos(e)
 
-    if (isDrawing) {
+    if (isDrawing && selectedTool !== "select") {
       if (selectedTool === "pencil") {
         setCurrentPath((prev) => [...prev, pos])
       } else {
@@ -288,7 +266,7 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   }
 
   const handleMouseUp = () => {
-    if (!isDrawing || !startPoint) return
+    if (!isDrawing || !startPoint || selectedTool === "select") return
 
     const endPoint = currentPath[currentPath.length - 1]
 
@@ -449,20 +427,25 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
     }
   }, [selectedTool])
 
-  // Simulate cursor movement
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCursors((prev) =>
-        prev.map((cursor) => ({
-          ...cursor,
-          x: Math.max(0, Math.min(800, cursor.x + (Math.random() - 0.5) * 40)),
-          y: Math.max(0, Math.min(600, cursor.y + (Math.random() - 0.5) * 40)),
-        })),
-      )
-    }, 3000)
-
-    return () => clearInterval(interval)
-  }, [])
+  const getCursorStyle = () => {
+    switch (selectedTool) {
+      case "pencil":
+        return "cursor-crosshair"
+      case "rectangle":
+      case "circle":
+      case "line":
+        return "cursor-crosshair"
+      case "text":
+      case "sticky":
+        return "cursor-text"
+      case "eraser":
+        return "cursor-pointer"
+      case "hand":
+        return "cursor-grab"
+      default:
+        return "cursor-default"
+    }
+  }
 
   return (
     <div className={`relative bg-white ${className}`}>
@@ -499,49 +482,25 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
       <div ref={containerRef} className="w-full h-full relative overflow-hidden">
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 cursor-crosshair"
+          className={`absolute inset-0 ${getCursorStyle()}`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
         />
 
-        {/* Real-time Cursors */}
-        {cursors.map((cursor) => (
-          <div
-            key={cursor.id}
-            className="absolute pointer-events-none z-20 transition-all duration-500"
-            style={{
-              left: cursor.x * state.zoom + state.pan.x,
-              top: cursor.y * state.zoom + state.pan.y,
-              transform: "translate(-2px, -2px)",
-            }}
-          >
-            <div className="relative">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="drop-shadow-sm">
-                <path d="M2 2L18 8L8 12L2 18L2 2Z" fill={cursor.color} stroke="white" strokeWidth="1" />
-              </svg>
-              <div
-                className="absolute top-5 left-2 px-2 py-1 rounded-md text-xs font-medium text-white shadow-sm whitespace-nowrap"
-                style={{ backgroundColor: cursor.color }}
-              >
-                {cursor.name}
-              </div>
-            </div>
-          </div>
-        ))}
-
         {/* Tool feedback */}
-        <div className="absolute top-4 left-4 bg-black/75 text-white px-2 py-1 rounded text-xs pointer-events-none">
-          {selectedTool === "select" && "Select Tool - Click and drag to select"}
-          {selectedTool === "pencil" && "Pencil Tool - Click and drag to draw"}
-          {selectedTool === "rectangle" && "Rectangle Tool - Click and drag to create rectangle"}
-          {selectedTool === "circle" && "Circle Tool - Click and drag to create circle"}
-          {selectedTool === "line" && "Line Tool - Click and drag to create line"}
-          {selectedTool === "sticky" && "Sticky Note Tool - Click to add sticky note"}
-          {selectedTool === "text" && "Text Tool - Click to add text"}
-          {selectedTool === "eraser" && "Eraser Tool - Click elements to delete"}
-        </div>
+        {selectedTool !== "select" && (
+          <div className="absolute top-4 left-4 bg-black/75 text-white px-2 py-1 rounded text-xs pointer-events-none">
+            {selectedTool === "pencil" && "Pencil Tool - Click and drag to draw"}
+            {selectedTool === "rectangle" && "Rectangle Tool - Click and drag to create rectangle"}
+            {selectedTool === "circle" && "Circle Tool - Click and drag to create circle"}
+            {selectedTool === "line" && "Line Tool - Click and drag to create line"}
+            {selectedTool === "sticky" && "Sticky Note Tool - Click to add sticky note"}
+            {selectedTool === "text" && "Text Tool - Click to add text"}
+            {selectedTool === "eraser" && "Eraser Tool - Click elements to delete"}
+          </div>
+        )}
       </div>
     </div>
   )

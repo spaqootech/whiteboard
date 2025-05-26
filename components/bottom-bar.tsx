@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge"
 import { Wifi, WifiOff, Mic } from "lucide-react"
+import { useDrawing } from "./drawing-context"
 
 interface BottomBarProps {
   selectedTool: string
@@ -25,7 +26,8 @@ const toolLabels: Record<string, string> = {
 }
 
 export function BottomBar({ selectedTool, isVoiceActive }: BottomBarProps) {
-  const isConnected = true // Simulate connection status
+  const { state } = useDrawing()
+  const isConnected = true // This would be connected to real collaboration service
 
   return (
     <div className="h-10 bg-gray-50 border-t border-gray-200 flex items-center justify-between px-6 text-sm">
@@ -35,17 +37,19 @@ export function BottomBar({ selectedTool, isVoiceActive }: BottomBarProps) {
           {isConnected ? (
             <>
               <Wifi className="w-4 h-4 text-green-600" />
-              <span className="text-green-600 font-medium">Connected</span>
+              <span className="text-green-600 font-medium">Ready</span>
             </>
           ) : (
             <>
               <WifiOff className="w-4 h-4 text-red-600" />
-              <span className="text-red-600 font-medium">Disconnected</span>
+              <span className="text-red-600 font-medium">Offline</span>
             </>
           )}
         </div>
 
-        <div className="text-gray-500">3 collaborators online</div>
+        <div className="text-gray-500">
+          {state.elements.length} element{state.elements.length !== 1 ? "s" : ""}
+        </div>
       </div>
 
       {/* Center Section - Current Tool */}
@@ -64,6 +68,7 @@ export function BottomBar({ selectedTool, isVoiceActive }: BottomBarProps) {
             <span className="text-red-600 font-medium">Voice Active</span>
           </>
         )}
+        {!isVoiceActive && <span className="text-gray-500">Zoom: {Math.round(state.zoom * 100)}%</span>}
       </div>
     </div>
   )

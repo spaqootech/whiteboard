@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Save, Download, Share2, ChevronDown, Settings, LogOut, Edit3 } from "lucide-react"
+import { Save, Download, Share2, ChevronDown, Settings, LogOut, Edit3, Check } from "lucide-react"
 
 interface TopNavigationProps {
   title: string
@@ -13,10 +13,28 @@ interface TopNavigationProps {
   onShare: () => void
   onExport: () => void
   onSave: () => void
+  lastSaved: Date
 }
 
-export function TopNavigation({ title, onTitleChange, onShare, onExport, onSave }: TopNavigationProps) {
+export function TopNavigation({ title, onTitleChange, onShare, onExport, onSave, lastSaved }: TopNavigationProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    await onSave()
+    setTimeout(() => setIsSaving(false), 1000)
+  }
+
+  const formatLastSaved = (date: Date) => {
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    const minutes = Math.floor(diff / 60000)
+
+    if (minutes < 1) return "Just now"
+    if (minutes < 60) return `${minutes}m ago`
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  }
 
   return (
     <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm">
@@ -48,14 +66,31 @@ export function TopNavigation({ title, onTitleChange, onShare, onExport, onSave 
               <Edit3 className="w-4 h-4 text-gray-400" />
             </div>
           )}
+
+          <div className="text-xs text-gray-500 ml-4">Saved {formatLastSaved(lastSaved)}</div>
         </div>
       </div>
 
       {/* Right Section */}
       <div className="flex items-center space-x-3">
-        <Button variant="outline" size="sm" className="h-9 px-4 border-gray-300 hover:bg-gray-50" onClick={onSave}>
-          <Save className="w-4 h-4 mr-2" />
-          Save
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 px-4 border-gray-300 hover:bg-gray-50"
+          onClick={handleSave}
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <>
+              <Check className="w-4 h-4 mr-2 text-green-600" />
+              Saved
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4 mr-2" />
+              Save
+            </>
+          )}
         </Button>
 
         <DropdownMenu>
