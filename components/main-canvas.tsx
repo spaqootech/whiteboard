@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Grid3X3, Trash2 } from "lucide-react"
+import { Grid3X3, Trash2, Move } from "lucide-react"
 import { useDrawing, type DrawingElement } from "./drawing-context"
 
 interface MainCanvasProps {
@@ -16,11 +16,28 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [showGrid, setShowGrid] = useState(false)
   const [isDrawing, setIsDrawing] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null)
   const [currentPath, setCurrentPath] = useState<{ x: number; y: number }[]>([])
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null)
+  const [hoveredElement, setHoveredElement] = useState<string | null>(null)
 
-  const { state, addElement, deleteElements, selectElements, clearSelection, setZoom, setPan, undo, redo } =
-    useDrawing()
+  const {
+    state,
+    addElement,
+    updateElement,
+    updateElements,
+    deleteElements,
+    selectElements,
+    clearSelection,
+    setZoom,
+    setPan,
+    setDragOffset,
+    undo,
+    redo,
+    getElementAt,
+    commitDrag,
+  } = useDrawing()
 
   // Initialize canvas
   useEffect(() => {
@@ -45,7 +62,7 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   // Redraw canvas when elements change
   useEffect(() => {
     redrawCanvas()
-  }, [state.elements, state.selectedElements, state.zoom, state.pan])
+  }, [state.elements, state.selectedElements, state.zoom, state.pan, hoveredElement])
 
   const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current
@@ -69,7 +86,9 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
 
     // Draw all elements
     state.elements.forEach((element) => {
-      drawElement(ctx, element, state.selectedElements.includes(element.id))
+      const isSelected = state.selectedElements.includes(element.id)
+      const isHovered = hoveredElement === element.id
+      drawElement(ctx, element, isSelected, isHovered)
     })
 
     // Draw current path while drawing
@@ -94,7 +113,7 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
     }
 
     ctx.restore()
-  }, [state, showGrid, isDrawing, currentPath, startPoint, selectedTool])
+  }, [state, showGrid, isDrawing, currentPath, startPoint, selectedTool, hoveredElement])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const gridSize = 20
@@ -116,11 +135,22 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
     }
   }
 
-  const drawElement = (ctx: CanvasRenderingContext2D, element: DrawingElement, isSelected: boolean) => {
+  const drawElement = (
+    ctx: CanvasRenderingContext2D,
+    element: DrawingElement,
+    isSelected: boolean,
+    isHovered: boolean,
+  ) => {
     ctx.strokeStyle = element.style.color
     ctx.lineWidth = element.style.strokeWidth
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
+
+    // Add hover effect
+    if (isHovered && (selectedTool === "select" || selectedTool === "eraser")) {
+      ctx.shadowColor = selectedTool === "eraser" ? "rgba(239, 68, 68, 0.3)" : "rgba(59, 130, 246, 0.3)"
+      ctx.shadowBlur = 8
+    }
 
     if (element.style.fill) {
       ctx.fillStyle = element.style.fill
@@ -182,13 +212,84 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
         break
     }
 
+    // Reset shadow
+    ctx.shadowColor = "transparent"
+    ctx.shadowBlur = 0
+
     // Draw selection indicator
-    if (isSelected && element.bounds) {
-      ctx.strokeStyle = "#3b82f6"
-      ctx.lineWidth = 2
+    if (isSelected) {
+      drawSelectionIndicator(ctx, element)
+    }
+
+    // Draw eraser indicator
+    if (isHovered && selectedTool === "eraser") {
+      ctx.strokeStyle = "#ef4444"
+      ctx.lineWidth = 3
       ctx.setLineDash([5, 5])
-      ctx.strokeRect(element.bounds.x - 5, element.bounds.y - 5, element.bounds.width + 10, element.bounds.height + 10)
+      if (element.bounds) {
+        ctx.strokeRect(element.bounds.x - 2, element.bounds.y - 2, element.bounds.width + 4, element.bounds.height + 4)
+      }
       ctx.setLineDash([])
+    }
+  }
+
+  const drawSelectionIndicator = (ctx: CanvasRenderingContext2D, element: DrawingElement) => {
+    ctx.strokeStyle = "#3b82f6"
+    ctx.lineWidth = 2
+    ctx.setLineDash([5, 5])
+
+    if (element.bounds) {
+      // Draw selection rectangle
+      ctx.strokeRect(element.bounds.x - 5, element.bounds.y - 5, element.bounds.width + 10, element.bounds.height + 10)
+
+      // Draw resize handles
+      ctx.setLineDash([])
+      ctx.fillStyle = "#3b82f6"
+      const handleSize = 6
+      const handles = [
+        { x: element.bounds.x - 5, y: element.bounds.y - 5 }, // Top-left
+        { x: element.bounds.x + element.bounds.width + 5 - handleSize, y: element.bounds.y - 5 }, // Top-right
+        { x: element.bounds.x - 5, y: element.bounds.y + element.bounds.height + 5 - handleSize }, // Bottom-left
+        {
+          x: element.bounds.x + element.bounds.width + 5 - handleSize,
+          y: element.bounds.y + element.bounds.height + 5 - handleSize,
+        }, // Bottom-right
+      ]
+
+      handles.forEach((handle) => {
+        ctx.fillRect(handle.x, handle.y, handleSize, handleSize)
+      })
+    } else if (element.type === "path" || element.type === "line") {
+      // For paths and lines, draw selection around the path
+      const bounds = getPathBounds(element.points)
+      if (bounds) {
+        ctx.strokeRect(bounds.x - 5, bounds.y - 5, bounds.width + 10, bounds.height + 10)
+      }
+    }
+
+    ctx.setLineDash([])
+  }
+
+  const getPathBounds = (points: { x: number; y: number }[]) => {
+    if (points.length === 0) return null
+
+    let minX = points[0].x
+    let maxX = points[0].x
+    let minY = points[0].y
+    let maxY = points[0].y
+
+    points.forEach((point) => {
+      minX = Math.min(minX, point.x)
+      maxX = Math.max(maxX, point.x)
+      minY = Math.min(minY, point.y)
+      maxY = Math.max(maxY, point.y)
+    })
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
     }
   }
 
@@ -243,9 +344,35 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   }
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (selectedTool === "select") return
-
     const pos = getMousePos(e)
+
+    if (selectedTool === "select") {
+      const elementAtPos = getElementAt(pos.x, pos.y)
+
+      if (elementAtPos) {
+        // Start dragging
+        if (!state.selectedElements.includes(elementAtPos.id)) {
+          selectElements([elementAtPos.id])
+        }
+        setIsDragging(true)
+        setDragStartPos(pos)
+        setDragOffset({ x: 0, y: 0 })
+      } else {
+        // Clear selection if clicking on empty space
+        clearSelection()
+      }
+      return
+    }
+
+    if (selectedTool === "eraser") {
+      const elementAtPos = getElementAt(pos.x, pos.y)
+      if (elementAtPos) {
+        deleteElements([elementAtPos.id])
+      }
+      return
+    }
+
+    // Drawing mode
     setIsDrawing(true)
     setStartPoint(pos)
     setCurrentPath([pos])
@@ -255,7 +382,46 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const pos = getMousePos(e)
 
-    if (isDrawing && selectedTool !== "select") {
+    if (selectedTool === "select" || selectedTool === "eraser") {
+      // Handle hover effects
+      const elementAtPos = getElementAt(pos.x, pos.y)
+      setHoveredElement(elementAtPos?.id || null)
+
+      // Handle dragging (only for select tool)
+      if (selectedTool === "select" && isDragging && dragStartPos && state.selectedElements.length > 0) {
+        const deltaX = pos.x - dragStartPos.x
+        const deltaY = pos.y - dragStartPos.y
+
+        // Update selected elements positions
+        const updates = state.selectedElements.map((id) => {
+          const element = state.elements.find((el) => el.id === id)
+          if (!element) return { id, updates: {} }
+
+          const elementUpdates: Partial<DrawingElement> = {}
+
+          if (element.bounds) {
+            elementUpdates.bounds = {
+              ...element.bounds,
+              x: element.bounds.x + deltaX - state.dragOffset.x,
+              y: element.bounds.y + deltaY - state.dragOffset.y,
+            }
+          }
+
+          if (element.points) {
+            elementUpdates.points = element.points.map((point) => ({
+              x: point.x + deltaX - state.dragOffset.x,
+              y: point.y + deltaY - state.dragOffset.y,
+            }))
+          }
+
+          return { id, updates: elementUpdates }
+        })
+
+        updateElements(updates)
+        setDragOffset({ x: deltaX, y: deltaY })
+      }
+    } else if (isDrawing) {
+      // Drawing mode
       if (selectedTool === "pencil") {
         setCurrentPath((prev) => [...prev, pos])
       } else {
@@ -266,7 +432,15 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   }
 
   const handleMouseUp = () => {
-    if (!isDrawing || !startPoint || selectedTool === "select") return
+    if (isDragging) {
+      setIsDragging(false)
+      setDragStartPos(null)
+      setDragOffset({ x: 0, y: 0 })
+      commitDrag()
+      return
+    }
+
+    if (!isDrawing || !startPoint || selectedTool === "select" || selectedTool === "eraser") return
 
     const endPoint = currentPath[currentPath.length - 1]
 
@@ -274,9 +448,18 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
 
     switch (selectedTool) {
       case "pencil":
+        const bounds = getPathBounds(currentPath)
         element = {
           type: "path",
           points: currentPath,
+          bounds: bounds
+            ? {
+                x: bounds.x - 5,
+                y: bounds.y - 5,
+                width: bounds.width + 10,
+                height: bounds.height + 10,
+              }
+            : undefined,
           style: {
             color: state.currentColor,
             strokeWidth: state.currentStrokeWidth,
@@ -317,9 +500,18 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
         }
         break
       case "line":
+        const lineBounds = getPathBounds([startPoint, endPoint])
         element = {
           type: "line",
           points: [startPoint, endPoint],
+          bounds: lineBounds
+            ? {
+                x: lineBounds.x - 5,
+                y: lineBounds.y - 5,
+                width: lineBounds.width + 10,
+                height: lineBounds.height + 10,
+              }
+            : undefined,
           style: {
             color: state.currentColor,
             strokeWidth: state.currentStrokeWidth,
@@ -428,6 +620,17 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
   }, [selectedTool])
 
   const getCursorStyle = () => {
+    if (selectedTool === "select") {
+      if (hoveredElement) {
+        return "cursor-move"
+      }
+      return "cursor-default"
+    }
+
+    if (selectedTool === "eraser") {
+      return "cursor-pointer"
+    }
+
     switch (selectedTool) {
       case "pencil":
         return "cursor-crosshair"
@@ -438,8 +641,6 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
       case "text":
       case "sticky":
         return "cursor-text"
-      case "eraser":
-        return "cursor-pointer"
       case "hand":
         return "cursor-grab"
       default:
@@ -473,6 +674,29 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
         )}
       </div>
 
+      {/* Selection Info */}
+      {state.selectedElements.length > 0 && (
+        <div className="absolute top-4 left-4 z-10 bg-blue-50 border border-blue-200 rounded-md px-3 py-2 text-sm">
+          <div className="flex items-center space-x-2">
+            <Move className="w-4 h-4 text-blue-600" />
+            <span className="text-blue-800 font-medium">
+              {state.selectedElements.length} element{state.selectedElements.length !== 1 ? "s" : ""} selected
+            </span>
+          </div>
+          <div className="text-xs text-blue-600 mt-1">Drag to move • Delete to remove</div>
+        </div>
+      )}
+
+      {/* Eraser Info */}
+      {selectedTool === "eraser" && hoveredElement && (
+        <div className="absolute top-4 left-4 z-10 bg-red-50 border border-red-200 rounded-md px-3 py-2 text-sm">
+          <div className="flex items-center space-x-2">
+            <Trash2 className="w-4 h-4 text-red-600" />
+            <span className="text-red-800 font-medium">Click to erase element</span>
+          </div>
+        </div>
+      )}
+
       {/* Zoom indicator */}
       <div className="absolute bottom-4 right-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-300 rounded-md px-2 py-1 text-xs text-gray-600">
         {Math.round(state.zoom * 100)}%
@@ -498,7 +722,7 @@ export function MainCanvas({ selectedTool, className }: MainCanvasProps) {
             {selectedTool === "line" && "Line Tool - Click and drag to create line"}
             {selectedTool === "sticky" && "Sticky Note Tool - Click to add sticky note"}
             {selectedTool === "text" && "Text Tool - Click to add text"}
-            {selectedTool === "eraser" && "Eraser Tool - Click elements to delete"}
+            {selectedTool === "eraser" && "Eraser Tool - Click elements to delete them"}
           </div>
         )}
       </div>
